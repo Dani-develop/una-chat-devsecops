@@ -47,6 +47,8 @@ ZAP Baseline rastrea y analiza las respuestas HTTP observadas. Los eventos propi
 
 La [comparación SCA](docs/sca.md) explica las dependencias detectadas en el laboratorio base y el cambio que permitió retirar las vulnerabilidades reportadas.
 
+El [hallazgo inicial de ZAP](docs/dast.md) documenta la corrección de `nosniff` en el cliente JavaScript de Socket.IO y la incorporación de HSTS.
+
 ## Render
 
 El servicio Node despliega `main` con el comando de compilación `npm ci --omit=dev` y el de inicio `npm start`. El proceso escucha en el `PORT` de Render en `0.0.0.0`. El endpoint `/health` devuelve el SHA inyectado por Render. El plan gratuito puede tardar en responder tras un periodo de inactividad.

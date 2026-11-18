@@ -6,18 +6,21 @@ const { createServer } = require('node:http');
 const { Server } = require('socket.io');
 const validation = require('./libs/unalib');
 const EVENT = 'Evento-Mensaje-Server';
+const socketClientDir = path.join(path.dirname(require.resolve('socket.io/package.json')), 'client-dist');
 
 function createChatServer() {
   const app = express();
   const httpServer = createServer(app);
-  const io = new Server(httpServer, { maxHttpBufferSize: 16384 });
+  const io = new Server(httpServer, { maxHttpBufferSize: 16384, serveClient: false });
   const commit = process.env.RENDER_GIT_COMMIT;
+  const onRender = process.env.RENDER === 'true';
   app.disable('x-powered-by');
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if (onRender) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'", "script-src 'self'", "style-src 'self'",
       "connect-src 'self'", "img-src 'self' http: https:",
@@ -30,7 +33,9 @@ function createChatServer() {
     res.setHeader('Cache-Control', 'no-store');
     res.json(commit ? { ok: true, commit } : { ok: true });
   });
+  app.use('/vendor/socket.io', express.static(socketClientDir, { index: false }));
   app.use(express.static(path.join(__dirname, 'public')));
+  app.use((_req, res) => res.status(404).type('text/plain').send('Ruta no encontrada.'));
   io.on('connection', socket => {
     socket.on(EVENT, (raw, acknowledge) => {
       const result = validation.validarMensaje(raw);

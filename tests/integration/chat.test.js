@@ -80,5 +80,9 @@ describe('Backend real + una-lib + Socket.IO real', { timeout: 10000 }, () => {
     assert.equal(response.headers['x-frame-options'], 'DENY');
     assert.match(response.headers['permissions-policy'], /camera=\(\)/);
     await request(chat.app).get('/health').expect(200, { ok: true });
+    await request(chat.app).get('/vendor/socket.io/socket.io.min.js')
+      .expect(200)
+      .expect('Content-Type', /javascript/)
+      .expect('X-Content-Type-Options', 'nosniff');
   });
 });
