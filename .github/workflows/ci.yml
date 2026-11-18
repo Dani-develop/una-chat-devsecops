@@ -1,0 +1,135 @@
+name: CI de seguridad
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: SAST · Semgrep
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      SEMGREP_SEND_METRICS: 'off'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Instalar Semgrep 1.186.0
+        run: python -m pip install semgrep==1.186.0
+      - name: Probar la regla local con entradas de control
+        run: semgrep --test --config security/semgrep.yml security/semgrep.test.js
+      - name: Revisar frontend y backend
+        run: |
+          mkdir -p ci-results
+          semgrep scan --config p/javascript --config security/semgrep.yml \
+            --error --metrics off --json-output ci-results/semgrep.json \
+            --sarif-output ci-results/semgrep.sarif server.js libs public
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: sast-semgrep
+          path: ci-results/
+          retention-days: 30
+
+  sca:
+    name: SCA · npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Auditar producción y desarrollo
+        shell: bash
+        run: |
+          mkdir -p ci-results
+          npm audit --audit-level=low --json | tee ci-results/npm-audit.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: sca-npm-audit
+          path: ci-results/
+          retention-days: 30
+
+  gitleaks:
+    name: Secretos · Gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Instalar y verificar Gitleaks 8.30.1
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -fsSL --retry 3 https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$archive"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Detectar un token sintético en un directorio temporal
+        shell: bash
+        run: |
+          mkdir -p ci-results
+          fixture="$(mktemp -d)"
+          trap 'rm -rf -- "$fixture"' EXIT
+          printf 'TOKEN=ghp_%s\n' "$(openssl rand -hex 18)" > "$fixture/demo.env"
+          exit_code=0
+          gitleaks dir "$fixture" --redact=100 --exit-code 42 --report-format json --report-path ci-results/control-sintetico.json || exit_code=$?
+          test "$exit_code" -eq 42
+          grep -q '"RuleID": "github-pat"' ci-results/control-sintetico.json
+      - name: Escanear todo el historial descargado
+        if: success()
+        run: gitleaks git . --log-opts="--all" --redact=100 --report-format json --report-path ci-results/gitleaks.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: secretos-gitleaks
+          path: ci-results/
+          retention-days: 30
+
+  pruebas:
+    name: Unitarias, integración y Playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: Ejecutar pruebas unitarias y de integración
+        shell: bash
+        run: |
+          mkdir -p ci-results
+          npm test | tee ci-results/unitarias.txt
+          npm run test:integration | tee ci-results/integracion.txt
+      - run: npx playwright install --with-deps chromium
+      - name: Ejecutar E2E con el backend local
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: pruebas-y-playwright
+          path: |
+            ci-results/
+            playwright-report/
+            test-results/
+          retention-days: 30

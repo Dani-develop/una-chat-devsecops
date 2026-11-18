@@ -1,0 +1,26 @@
+{
+  "name": "una-chat-devsecops",
+  "version": "1.0.0",
+  "private": true,
+  "description": "UNA Chat con verificación automatizada de seguridad",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/unit/unalib.test.js",
+    "test:integration": "node --test tests/integration/chat.test.js",
+    "test:e2e": "playwright test --project=chromium",
+    "test:e2e:headed": "playwright test --project=chromium --headed",
+    "test:all": "npm test && npm run test:integration && npm run test:e2e",
+    "report": "playwright show-report"
+  },
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "socket.io-client": "^4.8.1",
+    "supertest": "^7.1.4"
+  }
+}

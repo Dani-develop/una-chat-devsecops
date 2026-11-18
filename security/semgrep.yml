@@ -1,0 +1,12 @@
+rules:
+  - id: una-chat-dom-html
+    languages: [javascript]
+    severity: ERROR
+    message: El chat debe mostrar el contenido recibido con textContent o nodos DOM.
+    metadata:
+      cwe: "CWE-79"
+    pattern-either:
+      - pattern: $ELEMENT.innerHTML = $VALUE
+      - pattern: $ELEMENT.outerHTML = $VALUE
+      - pattern: $ELEMENT.insertAdjacentHTML($POSITION, $VALUE)
+      - pattern: $ELEMENT.html($VALUE)

@@ -1,0 +1,81 @@
+name: Verificación pública
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verificacion-produccion
+  cancel-in-progress: false
+
+env:
+  CHAT_BASE_URL: ${{ vars.CHAT_BASE_URL || 'https://una-chat-devsecops.onrender.com' }}
+
+jobs:
+  playwright:
+    name: Playwright · Chat público
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Comprobar qué commit responde en Render
+        run: node scripts/check-deploy.js
+      - name: Probar el chat desde Chromium
+        run: npm run test:e2e
+      - name: Comprobar que la versión se mantuvo
+        run: node scripts/check-deploy.js --once
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: playwright-publico
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 30
+
+  zap:
+    name: DAST · OWASP ZAP
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Comprobar qué commit se va a escanear
+        run: node scripts/check-deploy.js
+      - name: Rastrear y analizar respuestas HTTP de la app desplegada
+        shell: bash
+        run: |
+          mkdir -p ci-results/zap
+          cp security/zap.conf ci-results/zap/zap.conf
+          chmod a+w ci-results/zap
+          docker run --rm -v "$PWD/ci-results/zap:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af \
+            zap-baseline.py -t "$CHAT_BASE_URL" -m 1 -T 5 -I -c zap.conf \
+            -r zap.html -J zap.json | tee ci-results/zap/ejecucion.txt
+          test -s ci-results/zap/zap.json
+          test -s ci-results/zap/zap.html
+      - name: Comprobar que la versión se mantuvo
+        run: node scripts/check-deploy.js --once
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: dast-zap
+          path: ci-results/zap/
+          retention-days: 30
